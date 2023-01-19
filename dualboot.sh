@@ -23,10 +23,12 @@ dir="$(pwd)/binaries/$os"
 max_args=1
 arg_count=0
 disk=8
+prebootRole=D
+systemRole=i
 extractedIpsw="ipsw/extracted/"
 
 if [ ! -d "ramdisk/" ]; then
-    git clone https://github.com/edwin170/ramdisk.git
+    git clone https://github.com/dualra1n/ramdisk.git
 fi
 # =========
 # Functions
@@ -305,7 +307,11 @@ _dfuhelper() {
         step 10 'Release power button, but keep holding home button'
     fi
     sleep 1
-    
+
+    if [ "$(get_device_mode)" = "recovery" ]; then
+        _dfuhelper
+    fi
+
     if [ "$(get_device_mode)" = "dfu" ]; then
         echo "[*] Device entered DFU!"
     else
@@ -389,21 +395,16 @@ _boot() {
 }
 
 _exit_handler() {
-    if [ "$os" = 'Darwin' ]; then
-        defaults write -g ignore-devices -bool false
-        defaults write com.apple.AMPDevicesAgent dontAutomaticallySyncIPods -bool false
-        killall Finder
-    fi
     [ $? -eq 0 ] && exit
     echo "[-] An error occurred"
 
-    cd logs
-    for file in *.log; do
-        mv "$file" FAIL_${file}
-    done
-    cd ..
+    if [ -d "logs" ]; then
+        cd logs
+        mv "$log" FAIL_${log}
+        cd ..
+    fi
 
-    echo "[*] A failure log has been made. If you're going to make a GitHub issue, please attach the latest log."
+    echo "[*] A failure log has been made. If you're going ask for help, please attach the latest log."
 }
 trap _exit_handler EXIT
 
@@ -501,7 +502,7 @@ chmod +x "$dir"/*
 # ============
 
 echo "dualboot | Version beta"
-echo "Written by edwin and most code of palera1n :) thanks Nebula and Mineek | Some code also the ramdisk from Nathan | thanks MatthewPierson, Ralph0045, and all people creator of path file boot"
+echo "Written by edwin and most code of palera1n :) thanks pelera1n team | Some code also the ramdisk from Nathan | thanks MatthewPierson, Ralph0045, and all people creator of path file boot"
 echo ""
 
 version="beta"
@@ -604,10 +605,11 @@ fi
 
 if [ "$getIpsw" = "1" ]; then # download specific ipsw for your device however the problem is that you will have to install ipsw
     if  command -v ipsw &>/dev/null; then
+        cd ipsw/
         echo "you have already installed ipsw"
         ipsw download ipsw --device $deviceid --version $version
         sleep 1
-        mv -v "*.ipsw" ipsw/
+        cd ..
         exit;
     else 
         if [ "$os" = "Darwin" ]; then
@@ -757,12 +759,17 @@ if [ true ]; then
         exit;
     fi
 
-    remote_cmd "cat /dev/rdisk1" | dd of=dump.raw bs=256 count=$((0x4000)) 
-    "$dir"/img4tool --convert -s blobs/"$deviceid"-"$version".shsh2 dump.raw
-    echo "[*] Converting blob"
-    sleep 3
-    "$dir"/img4tool -e -s $(pwd)/blobs/"$deviceid"-"$version".shsh2 -m work/IM4M
-    rm dump.raw
+#    if [ ! -e blobs/"$deviceid"-"$version".shsh2 ]; then
+#        remote_cmd "cat /dev/rdisk1" | dd of=dump.raw bs=256 count=$((0x4000)) 
+#        "$dir"/img4tool --convert -s blobs/"$deviceid"-"$version".shsh2 dump.raw
+#        echo "[*] Converting blob"
+#        sleep 3
+#    fi
+#    "$dir"/img4tool -e -s $(pwd)/blobs/"$deviceid"-"$version".shsh2 -m work/IM4M
+    #rm dump.raw
+
+    remote_cp root@localhost:/mnt6/$active/System/Library/Caches/apticket.der blobs/"$deviceid"-"$version".der
+    cp -av blobs/"$deviceid"-"$version".der work/IM4M
 
     if [ "$jailbreak" = "1" ]; then
         echo "patching kernel" # this will send and patch the kernel
@@ -870,11 +877,16 @@ if [ true ]; then
     if [ "$dualboot" = "1" ]; then
         if [ -z "$dont_createPart" ]; then # if you have already your second ios you can omited with this
             echo "[*] Creating partitions"
-        	if [ ! $(remote_cmd "/sbin/newfs_apfs -o role=i -A -v SystemB /dev/disk0s1") ] && [ ! $(remote_cmd "/sbin/newfs_apfs -o role=0 -A -v DataB /dev/disk0s1") ] && [ ! $(remote_cmd "/sbin/newfs_apfs -o role=D -A -v PrebootB /dev/disk0s1") ]; then # i put this in case that resturn a error the script can continuing
+            if [[ "$version" = "13."* ]]; then 
+                systemRole=r
+                prebootRole=i
+            fi
+            
+        	if [ ! $(remote_cmd "/sbin/newfs_apfs -o role=${systemRole} -A -v SystemB /dev/disk0s1") ] && [ ! $(remote_cmd "/sbin/newfs_apfs -o role=0 -A -v DataB /dev/disk0s1") ] && [ ! $(remote_cmd "/sbin/newfs_apfs -o role=${prebootRole} -A -v PrebootB /dev/disk0s1") ]; then # i put this in case that resturn a error the script can continuing
                 echo "[*] partitions created, continuing..."
 	        fi
 		    
-            echo "is already created"
+            echo "partitions are already created"
             echo "mounting filesystems "
             remote_cmd "/sbin/mount_apfs /dev/disk0s1s${disk} /mnt8/"
             sleep 1
@@ -907,13 +919,20 @@ if [ true ]; then
                 # on linux this will be different because asr. this just mount the rootfs and copying all files to partition 
                 sleep 2
                 dmg_disk=$(remote_cmd "/usr/sbin/hdik /mnt8/${dmgfile} | head -3 | tail -1 | sed 's/ .*//'")
-                remote_cmd "/sbin/mount_apfs -o ro $dmg_disk /mnt5/"
+                if [[ ! "$version" = "13."* ]]; then
+                    remote_cmd "/sbin/mount_apfs -o ro $dmg_disk /mnt5/"
+                else 
+                    remote_cmd "/sbin/mount_apfs -o ro "$dmg_disk"s1 /mnt5/"
+                fi
                 echo "it is extracting the files so please hang on ......."
                 remote_cmd "cp -a /mnt5/* /mnt8/"
                 sleep 2
-                remote_cmd "/sbin/umount $dmg_disk"
+                if [[ ! "$version" = "13."* ]]; then
+                    remote_cmd "/sbin/umount $dmg_disk"
+                else
+                    remote_cmd "/sbin/umount "$dmg_disk"s1 "
+                fi
                 remote_cmd "rm -rv /mnt8/${dmgfile}"
-                
             fi
             # that reboot is strange because i can continue however when i want to use apfs_invert that never work so i have to reboot on linux is ineccessary but i have to let it to avoid problems 
             remote_cmd "/usr/sbin/nvram auto-boot=false"
@@ -935,9 +954,9 @@ if [ true ]; then
             remote_cmd "/sbin/mount_apfs /dev/disk0s1s${disk} /mnt8/"
             remote_cmd "/sbin/mount_apfs /dev/disk0s1s${dataB} /mnt9/"
             remote_cmd "/sbin/mount_apfs /dev/disk0s1s${prebootB} /mnt4/"
-            remote_cmd "cp -av /mnt8/private/var/* /mnt9/" # this will copy all file which is needed by dataB
+            remote_cmd "cp -a /mnt8/private/var/. /mnt9/" # this will copy all file which is needed by dataB
             remote_cmd "mount_filesystems"
-            remote_cmd "cp -av /mnt6/* /mnt4/" # copy preboot to prebootB
+            remote_cmd "cp -a /mnt6/. /mnt4/" # copy preboot to prebootB
         fi
         remote_cmd "/usr/sbin/nvram auto-boot=false"
         remote_cmd "/sbin/reboot"
@@ -991,7 +1010,7 @@ if [ true ]; then
         fi
         "$dir"/iBoot64Patcher work/iBEC.dec work/iBEC.patched -b "rd=disk0s1s${disk} debug=0x2014e wdt=-1 -v `if [ "$cpid" = '0x8960' ] || [ "$cpid" = '0x7000' ] || [ "$cpid" = '0x7001' ]; then echo "-restore"; fi`" -n 
         
-        if [ "$fixHB" = "1" ]; then # that not work yet, we are waiting for the lady find a ibootpath2 working on ios 14 :)
+        if [ "$fixHB" = "1" ]; then # that work fine on ios 14.5 up but the boot procces should be different if some one want to try it go ahead because i dont have a a10 or a11 :)
            if [[ "$deviceid" == iPhone9,[1-4] ]] || [[ "$deviceid" == "iPhone10,"* ]]; then
                 "$dir"/iBootpatch2 --t8010 work/iBEC.patched work/iBEC.patched2
             else
@@ -1011,15 +1030,15 @@ if [ true ]; then
         if [ "$os" = "Linux" ]; then
             echo "devicetree patcher is fall down, not work on linux, however you can use https://github.com/darlinghq/darling.git to execute binary dtree_patcher"
             # that will use darling because dtreepatcher have problem on linux and noone want to help me 
-            /usr/bin/darling shell binaries/Darwin/dtree_patcher work/dtree.raw work/dtree.patched -d -p
+            /usr/bin/darling shell binaries/Darwin/dtree_patcher work/dtree.raw work/dtree.patched -d  `if [[ ! "$version" = '13.'* ]]; then echo "-p"; fi`
             "$dir"/img4 -i work/dtree.patched -o work/devicetree.img4 -A -M work/IM4M -T rdtr
         else 
-            "$dir"/dtree_patcher work/dtree.raw work/dtree.patched -d -p 
+            "$dir"/dtree_patcher work/dtree.raw work/dtree.patched -d `if [[ ! "$version" = '13.'* ]]; then echo "-p"; fi`
             "$dir"/img4 -i work/dtree.patched -o work/devicetree.img4 -A -M work/IM4M -T rdtr
         fi
 
         cp -rv work/*.img4 "boot/${deviceid}" # copying all file img4 to boot
-        echo "so we finish, now you can execute './dualboot boot' to boot to second ios after that we need that you record a video when your iphone is booting to see what is the uuid and note that name of the uuid"       
+      # echo "so we finish, now you can execute './dualboot boot' to boot to second ios after that we need that you record a video when your iphone is booting to see what is the uuid and note that name of the uuid"       
         _boot
     fi
 fi
