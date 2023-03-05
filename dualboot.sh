@@ -852,11 +852,11 @@ if [ true ]; then
             echo "[*] Creating partitions"
             
         	if [ ! $(remote_cmd "/sbin/newfs_apfs -o role=i -A -v SystemB /dev/disk0s1") ] && [ ! $(remote_cmd "/sbin/newfs_apfs -o role=0 -A -v DataB /dev/disk0s1") ] && [ ! $(remote_cmd "/sbin/newfs_apfs -o role=D -A -v PrebootB /dev/disk0s1") ]; then # i put this in case that resturn a error the script can continuing
-                echo "[*] partitions created, continuing..."
+                echo "[*] Partitions created, continuing..."
 	        fi
 		    
-            echo "partitions are already created"
-            echo "mounting filesystems "
+            echo "[*] Partitions are already created"
+            echo "[*] Mounting filesystems..."
             remote_cmd "/sbin/mount_apfs /dev/disk0s1s${disk} /mnt8/"
             sleep 1
             remote_cmd "/sbin/mount_apfs /dev/disk0s1s${dataB} /mnt9/" # this mount partitions which are needed by dualboot
@@ -865,18 +865,18 @@ if [ true ]; then
             sleep 1
             
             if [ ! $(remote_cmd "cp -av /mnt2/keybags /mnt9/") ]; then # this are keybags without this the system wont work 
-                echo "copied keybags"
+                echo "[*] Copied keybags"
             fi
              
 
-            echo "copying filesystem so hang on that could take 20 minute because is trought ssh"
+#            echo "copying filesystem so hang on that could take 20 minute because is trought ssh"
             if command -v rsync &>/dev/null; then
-                echo "rsync installed"
+                echo "[*] rsync installed"
             else 
-                echo "you dont have rsync installed so the script will take much more time to copy the rootfs file, so install rsync in order to be faster, on mac brew install rsync on linux apt install rsync"
+                echo "[*] rsync is not installed. Installing it is recommended."
             fi
             
-            echo "it is copying rootfs so hang on like 20 minute ......"
+            echo "[*] Copying files to rootFS. This should take about 20 minutes."
             if [ "$os" = "Darwin" ]; then
                 if [ ! $("$dir"/sshpass -p 'alpine' rsync -rvz -e 'ssh -p 2222' --progress ipsw/out.dmg root@localhost:/mnt8) ]; then
                     remote_cp ipsw/out.dmg root@localhost:/mnt8 # this will copy the root file in order to it is mounted and restore partition      
